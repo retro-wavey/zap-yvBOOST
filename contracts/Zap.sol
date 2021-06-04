@@ -126,7 +126,7 @@ contract Zap {
     }
 
     function depositEth(uint256 _amount, address recipient) public payable {
-        require(address(this).balance == _amount, "ETH sent doesn't match amount");
+        require(msg.value == _amount, "ETH sent doesn't match amount");
         uint256 adjustedCrvOut = quote(weth, crv, _amount).mul(DENOMINATOR.add(mintBuffer)).div(DENOMINATOR);
         uint256 adjustedYvBoostOut = convertFromShares(quote(weth, yvBoost, _amount));
         IWeth(weth).deposit{value: _amount}();
@@ -198,7 +198,11 @@ contract Zap {
         governance = _governance;
     }
 
+    function sweep(address _token) external onlyGovernance {
+        IERC20(_token).safeTransfer(governance, IERC20(_token).balanceOf(address(this)));
+    }
+
     receive() external payable {
-        depositEth(address(this).balance, msg.sender);
+        depositEth(msg.value, msg.sender);
     }
 }
