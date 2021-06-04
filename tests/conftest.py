@@ -29,9 +29,12 @@ def yveCrv_whale(accounts):
      
 @pytest.fixture
 def user(accounts,crv_whale, crv, yveCrv,yveCrv_whale):
-    crv.transfer(accounts[0], crv.balanceOf(crv_whale),{'from':crv_whale})
-    yveCrv.transfer(accounts[0], yveCrv.balanceOf(yveCrv_whale),{'from':yveCrv_whale})
-    yield accounts[0]
+    user = accounts[0]
+    eth_whale = accounts.at("0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8", force=True)
+    eth_whale.transfer(user, "10000 ether")
+    crv.transfer(user, crv.balanceOf(crv_whale),{'from':crv_whale})
+    yveCrv.transfer(user, yveCrv.balanceOf(yveCrv_whale),{'from':yveCrv_whale})
+    yield user
 
 @pytest.fixture
 def yvBoost(accounts):
@@ -40,6 +43,10 @@ def yvBoost(accounts):
 @pytest.fixture
 def yvBoost(accounts):
     yield Contract("0x9d409a0A012CFbA9B15F6D4B36Ac57A46966Ab9a")
+
+@pytest.fixture
+def weth():
+    yield Contract("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
 
 @pytest.fixture
 def zap(Zap, gov):

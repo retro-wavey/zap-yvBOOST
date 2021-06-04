@@ -41,11 +41,7 @@ interface IVoterProxy {
 }
 
 interface IyveCRV {
-    function claimable(address) external view returns(uint256);
-    function supplyIndex(address) external view returns(uint256);
     function balanceOf(address) external view returns(uint256);
-    function index() external view returns(uint256);
-    function claim() external;
     function depositAll() external;
 }
 
@@ -57,8 +53,6 @@ interface IyVault {
 
 interface IWeth {
     function deposit() external payable;
-    function transfer(address to, uint value) external returns (bool);
-    function withdraw(uint) external;
 }
 
 library UniswapV2Library {
@@ -92,10 +86,9 @@ contract Zap {
     address public governance = address(0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52);
 
     event UpdatedBuffer(uint256 newBuffer);
-    event BuyOrMint(bool shouldMint, uint256 projBuyAmount, uint256 projMintAmount);
-    event DepositEth(bool toCrv, uint256 amountOut, uint256 );
-    event DepositCrv(bool minted, uint256 amount);
-    event DepositYveCrv(bool minted, uint256 amount);
+    event DepositEth(bool toCrv, uint256 adjustedCrvOut, uint256 adjustedYvBoostOut);
+    event DepositCrv(bool minted, uint256 adjustedAmountFromMint, uint256 amountFromSwap);
+    event DepositYveCrv(uint256 amount);
     
     modifier onlyGovernance() {
         require(msg.sender == governance, "!notgov");
@@ -103,7 +96,6 @@ contract Zap {
     }
 
     constructor() public {
-        // You can set these parameters on deployment to whatever you want
         IERC20(yveCrv).safeApprove(yvBoost, type(uint256).max);
         IERC20(crv).safeApprove(yveCrv, type(uint256).max);
         IERC20(crv).safeApprove(sushiswap, type(uint256).max);
@@ -111,36 +103,34 @@ contract Zap {
     }
 
     function depositYveCrv(uint256 _amount, address recipient) external {
-        // Happy path where user already has the vault's want
         IERC20(yveCrv).transferFrom(msg.sender, address(this), _amount);
         IyVault(yvBoost).deposit();
+        sendToUser(recipient);
+        emit DepositYveCrv(_amount);
     }
 
     function depositCrv(uint256 _amount, address recipient) external {
         // Check outputs for yvBOOST buy and backscratcher mint
         IERC20(crv).transferFrom(msg.sender, address(this), _amount);
-        (bool shouldMint, uint256 fromSell) = shouldMint(_amount);
+        uint256 underlying = convertFromShares(quote(crv, yvBoost, _amount)); // convert to underlying
+        uint256 adjustedAmountFromMint = _amount.mul(DENOMINATOR.add(mintBuffer)).div(DENOMINATOR);
         //emit BuyOrMint(shouldMint, fromSell, _amount);
-        if(shouldMint){
+        if(adjustedAmountFromMint >= underlying){
             mintDepositAndSend(recipient);
         }
         else{
             swap(crv, yvBoost, _amount);
             sendToUser(recipient);
-            
         }
+        emit DepositCrv(adjustedAmountFromMint >= underlying, adjustedAmountFromMint, underlying);
     }
 
     function depositEth(uint256 _amount, address recipient) public payable {
-        // Check outputs for yvBOOST buy and backscratcher mint
-        // Should swap to YVBOOST or CRV?
-        // Check swap outputs for CRV and YVBOOST
         require(address(this).balance == _amount, "ETH sent doesn't match amount");
-        uint256 estWantFromCrvSwap = quote(weth, crv, _amount).mul(DENOMINATOR.add(mintBuffer)).div(DENOMINATOR);
-        uint256 estWantFromYvBoostSwap = convertToFromShares(quote(weth, yvBoost, _amount));
+        uint256 adjustedCrvOut = quote(weth, crv, _amount).mul(DENOMINATOR.add(mintBuffer)).div(DENOMINATOR);
+        uint256 adjustedYvBoostOut = convertFromShares(quote(weth, yvBoost, _amount));
         IWeth(weth).deposit{value: _amount}();
-        if(estWantFromCrvSwap > estWantFromYvBoostSwap){
-            //convert to weth
+        if(adjustedCrvOut > adjustedYvBoostOut){
             swap(weth, crv, _amount);
             mintDepositAndSend(recipient);
         }
@@ -148,7 +138,7 @@ contract Zap {
             swap(weth, yvBoost, _amount);
             sendToUser(recipient);
         }
-        //emit DepositEth(bool minted, uint256 amount);
+        emit DepositEth(adjustedCrvOut > adjustedYvBoostOut, adjustedCrvOut, adjustedYvBoostOut);
     }
 
     function mintDepositAndSend(address recipient) internal {
@@ -161,26 +151,8 @@ contract Zap {
         IERC20(yvBoost).safeTransfer(recipient, IERC20(yvBoost).balanceOf(address(this)));
     }
 
-    function convertToFromShares(uint256 _amount) internal returns (uint256) {
-        return IyVault(yvBoost).pricePerShare().mul(_amount);
-    }
-
-    // Here we determine if better to market-buy yvBOOST or mint it via backscratcher
-    function shouldMint(uint256 _amountIn) public view returns (bool mint, uint256 projectedYveCrv) {
-        // Using reserve ratios of swap pairs will allow us to compare whether it's more efficient to:
-        //  1) Buy yvBOOST (unwrapped for yveCRV)
-        //  2) Buy CRV (and use to mint yveCRV 1:1)
-        address[] memory path = new address[](3);
-        path[0] = crv;
-        path[1] = weth;
-        path[2] = yvBoost;
-        uint256[] memory amounts = ISwap(sushiswap).getAmountsOut(_amountIn, path);
-        uint256 projectedYvBoost = amounts[2];
-        // Convert yvBOOST to yveCRV
-        projectedYveCrv = projectedYvBoost.mul(IyVault(yvBoost).pricePerShare()).div(1e18); // save some gas by hardcoding 1e18
-
-        // Here we favor minting by a % value defined by "mintBuffer"
-        mint = _amountIn.mul(DENOMINATOR.add(mintBuffer)).div(DENOMINATOR) > projectedYveCrv;
+    function convertFromShares(uint256 _amount) internal returns (uint256) {
+        return IyVault(yvBoost).pricePerShare().mul(_amount).div(1e18);
     }
 
     function quote(address token_in, address token_out, uint256 amount_in) internal view returns (uint256) {
