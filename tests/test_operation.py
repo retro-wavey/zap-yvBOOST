@@ -45,12 +45,13 @@ def test_deposit_eth_path(zap, accounts, crv, yveCrv, yvBoost, sushiswap, chain,
     sushiswap.swapExactETHForTokens(
         0, [weth,crv], user, 2 ** 256 - 1, {'from':user,'value':1e22}
     )
+    balance1 = yvBoost.balanceOf(user)
     tx1 = zap.depositEth(1e18, user, {'from':user,'value':1e18})
-    balance = yvBoost.balanceOf(user)
+    balance2 = yvBoost.balanceOf(user)
 
     print(tx1.events['DepositEth'])
     assert tx1.events['DepositEth']['toCrv'] == False
-    assert balance > 0
+    assert balance1 < balance2
     assert yveCrv.balanceOf(zap) == 0
     assert crv.balanceOf(zap) == 0
     assert yvBoost.balanceOf(zap) == 0
@@ -63,12 +64,12 @@ def test_deposit_eth_path(zap, accounts, crv, yveCrv, yvBoost, sushiswap, chain,
     sushiswap.swapExactETHForTokens(
         0, [weth,yvBoost], user, 2 ** 256 - 1, {'from':user,'value':1e22}
     )
-
+    balance1 = yvBoost.balanceOf(user)
     tx1 = zap.depositEth(1e18, user, {'from':user,'value':1e18})
-    balance = yvBoost.balanceOf(user)
+    balance2 = yvBoost.balanceOf(user)
     print(tx1.events['DepositEth'])
     assert tx1.events['DepositEth']['toCrv'] == True
-    assert balance > 0
+    assert balance1 < balance2
     assert yveCrv.balanceOf(zap) == 0
     assert crv.balanceOf(zap) == 0
     assert yvBoost.balanceOf(zap) == 0
@@ -78,6 +79,7 @@ def test_deposit_eth_path(zap, accounts, crv, yveCrv, yvBoost, sushiswap, chain,
     chain.revert()
 
 def test_deposit_crv_path(zap, accounts, crv, yveCrv, yvBoost, sushiswap, chain, user, weth):
+    balance1 = yvBoost.balanceOf(user)
     crv.approve(zap, 1e30, {"from": user})
     chain.snapshot()
 
@@ -86,10 +88,10 @@ def test_deposit_crv_path(zap, accounts, crv, yveCrv, yvBoost, sushiswap, chain,
         0, [weth,crv], user, 2 ** 256 - 1, {'from':user,'value':1e22}
     )
     tx1 = zap.depositCrv(1e18, user, {'from':user})
-    balance = yvBoost.balanceOf(user)
+    balance2 = yvBoost.balanceOf(user)
     print(tx1.events['DepositCrv'])
     assert tx1.events['DepositCrv']['minted'] == False
-    assert balance > 0
+    assert balance2 > balance1
     assert yveCrv.balanceOf(zap) == 0
     assert crv.balanceOf(zap) == 0
     assert yvBoost.balanceOf(zap) == 0
@@ -102,12 +104,12 @@ def test_deposit_crv_path(zap, accounts, crv, yveCrv, yvBoost, sushiswap, chain,
     sushiswap.swapExactETHForTokens(
         0, [weth,yvBoost], user, 2 ** 256 - 1, {'from':user,'value':1e22}
     )
-
+    balance1 = yvBoost.balanceOf(user)
     tx1 = zap.depositCrv(1e18, user, {'from':user})
-    balance = yvBoost.balanceOf(user)
+    balance2 = yvBoost.balanceOf(user)
     print(tx1.events['DepositCrv'])
     assert tx1.events['DepositCrv']['minted'] == True
-    assert balance > 0
+    assert balance2 > balance1
     assert yveCrv.balanceOf(zap) == 0
     assert crv.balanceOf(zap) == 0
     assert yvBoost.balanceOf(zap) == 0

@@ -48,6 +48,7 @@ interface IyveCRV {
 interface IyVault {
     function balanceOf(address) external view returns(uint256);
     function deposit() external;
+    function deposit(uint256, address) external;
     function pricePerShare() external view returns(uint256);
 }
 
@@ -102,53 +103,52 @@ contract Zap {
         IERC20(weth).safeApprove(sushiswap, type(uint256).max);
     }
 
-    function depositYveCrv(uint256 _amount, address recipient) external {
+    function depositYveCrv(uint256 _amount, address _recipient) external {
         IERC20(yveCrv).transferFrom(msg.sender, address(this), _amount);
-        IyVault(yvBoost).deposit();
-        sendToUser(recipient);
+        IyVault(yvBoost).deposit(_amount, _recipient);
         emit DepositYveCrv(_amount);
     }
 
-    function depositCrv(uint256 _amount, address recipient) external {
+    function depositCrv(uint256 _amount, address _recipient) external {
         // Check outputs for yvBOOST buy and backscratcher mint
         IERC20(crv).transferFrom(msg.sender, address(this), _amount);
         uint256 underlying = convertFromShares(quote(crv, yvBoost, _amount)); // convert to underlying
         uint256 adjustedAmountFromMint = _amount.mul(DENOMINATOR.add(mintBuffer)).div(DENOMINATOR);
         //emit BuyOrMint(shouldMint, fromSell, _amount);
         if(adjustedAmountFromMint >= underlying){
-            mintDepositAndSend(recipient);
+            mintDepositAndSend(_recipient);
         }
         else{
             swap(crv, yvBoost, _amount);
-            sendToUser(recipient);
+            sendToUser(_recipient);
         }
         emit DepositCrv(adjustedAmountFromMint >= underlying, adjustedAmountFromMint, underlying);
     }
 
-    function depositEth(uint256 _amount, address recipient) public payable {
+    function depositEth(uint256 _amount, address _recipient) public payable {
         require(msg.value == _amount, "ETH sent doesn't match amount");
         uint256 adjustedCrvOut = quote(weth, crv, _amount).mul(DENOMINATOR.add(mintBuffer)).div(DENOMINATOR);
         uint256 adjustedYvBoostOut = convertFromShares(quote(weth, yvBoost, _amount));
         IWeth(weth).deposit{value: _amount}();
         if(adjustedCrvOut > adjustedYvBoostOut){
             swap(weth, crv, _amount);
-            mintDepositAndSend(recipient);
+            mintDepositAndSend(_recipient);
         }
         else{
             swap(weth, yvBoost, _amount);
-            sendToUser(recipient);
+            sendToUser(_recipient);
         }
         emit DepositEth(adjustedCrvOut > adjustedYvBoostOut, adjustedCrvOut, adjustedYvBoostOut);
     }
 
-    function mintDepositAndSend(address recipient) internal {
+    function mintDepositAndSend(address _recipient) internal {
         IyveCRV(yveCrv).depositAll();
-        IyVault(yvBoost).deposit();
-        sendToUser(recipient);
+        uint256 amount = IERC20(yveCrv).balanceOf(address(this));
+        IyVault(yvBoost).deposit(amount, _recipient);
     }
 
-    function sendToUser(address recipient) internal {
-        IERC20(yvBoost).safeTransfer(recipient, IERC20(yvBoost).balanceOf(address(this)));
+    function sendToUser(address _recipient) internal {
+        IERC20(yvBoost).safeTransfer(_recipient, IERC20(yvBoost).balanceOf(address(this)));
     }
 
     function convertFromShares(uint256 _amount) internal returns (uint256) {
